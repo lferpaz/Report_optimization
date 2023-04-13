@@ -5,11 +5,18 @@ from openpyxl.styles import (
     PatternFill,Alignment, Font
 )
 import win32com.client
-from tkinter import Tk, Button
+from tkinter import Tk, Button, messagebox, Label, Entry, DISABLED
 from tkcalendar import Calendar
 import datetime
 import os
 import messagebox
+import time
+import warnings
+warnings.filterwarnings("ignore")
+
+
+
+now = datetime.datetime.now()
 
 ENTORNO = "PRODUCCION"
 
@@ -53,18 +60,21 @@ df = pd.DataFrame(
 
 
 # Functions to read the files and create the dataframes
-def conenct_to_outook():
-    outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-    return outlook
+def connect_to_outlook():
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+        return outlook
+    except Exception as e:
+        print("Error al conectar a Outlook:", e)
+        return None
 
 
 def get_inbox_folder(outlook, folder_name, subfolder_name=None):
     # in case of not finding the folder, it will return a mesaage
     try:
-        inbox = outlook.Folders(folder_name).Folders(subfolder_name).Folders("2023")
+        inbox = outlook.Folders(folder_name).Folders(subfolder_name).Folders(str(now.year)) 
     except:
-        print("La carpeta a la qual esteu intentant accedir no es troba, si us plau reviseu que el nom sigui el correcte.".format(folder_name))
-
+        print("La carpeta a la qual esteu intentant accedir no es troba, si us plau reviseu que el nom sigui el correcte.".format(folder_name, subfolder_name))
     return inbox
 
 
@@ -127,7 +137,7 @@ def classify_message_and_inter_into_dataframe(messages, df):
     for message in messages:
         tecnologia = "NO DEFINIDO"
         observacions = message.Subject.split("Error:")[1].strip() if "Error:" in message.Subject else ""
-        subject = message.Subject.split("Error:")[0].strip()
+        subject = message.Subject.split("Error:")[0].strip() or message.Subject.split("ERROR:")[0].strip()
         categories_list = message.Categories
         urgent = "SI" if subject.startswith("URGENT") else "NO"
         resultat=""
@@ -206,19 +216,22 @@ def pass_df_to_excel(df, from_date, to_date):
         if row[0].row % 2 == 0:
             for cell in row:
                 cell.fill = fill
+
+    # crear carpeta si no existe
+    if not os.path.exists("Informes_Generados"):
+        os.makedirs("Informes_Generados")
     
-    # Save the Excel file
-    wb.save(f"Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
+    wb.save(f"Informes_Generados/Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
     
 
 def get_date(val):
     """Muestra un calendario para que el usuario seleccione una fecha."""
     root = Tk()
-    root.geometry("300x250")
+    root.geometry("300x300")
     if val == 0:
-        root.title("Seleccionar fecha inicial")
+        root.title("Seleccionar data d'inici")
     else:
-        root.title("Seleccionar fecha final")
+        root.title("Seleccionar data final")
 
     def get_selected_date():
         """Obtiene la fecha seleccionada por el usuario y cierra la ventana."""
@@ -226,14 +239,24 @@ def get_date(val):
         selected_date = cal.selection_get()
         root.destroy()
 
-    selected_date = None
-    now = datetime.datetime.now()
+    def cancel():
+        """Cierra la ventana sin seleccionar una fecha."""
+        nonlocal selected_date
+        selected_date = None
+        root.destroy()
+        exit()
 
-    cal = Calendar(root, selectmode="day", year=now.year , month=now.month, day=now.day)
+    selected_date = None
+    
+
+    cal = Calendar(root, selectmode="day", year=now.year , month=now.month, day=now.day,maxdate=now)
     cal.pack(pady=20)
 
     btn_ok = Button(root, text="OK", command=get_selected_date)
-    btn_ok.pack(pady=10)
+    btn_ok.pack(side="left", pady=10, padx=10)
+
+    btn_cancel = Button(root, text="CANCEL·LAR", command=cancel)
+    btn_cancel.pack(side="right", pady=10, padx=10)
 
     root.protocol("WM_DELETE_WINDOW", lambda: messagebox.showerror("Error", "Debes seleccionar una fecha"))
 
@@ -245,40 +268,116 @@ def get_date(val):
 
 
 
-if __name__ == "__main__":
-    
-    # Obtener la fecha seleccionada por el usuario y calcular la fecha inicial restando 4 días
-    selected_date = get_date(0)
+   
 
-    to_date = selected_date+ datetime.timedelta(days=4)
+
+
+
+def main():
+    global df
+    # Mostramos mensajes de incializacion del programa
+    print("###############################################")
+    print("##                                           ##")
+    print("##  Programa de generació d'informes de      ##")
+    print("##  gestió de desplegaments d'aplicacions    ##")
+    print("##                                           ##")
+    print("###############################################")
+    print()
+     # Obtener la fecha seleccionada por el usuario y calcular la fecha inicial restando 4 días
+    selected_date = get_date(0)
+    print(f"Data d'inici seleccionada: -------------------> {selected_date.strftime('%d/%m/%Y')}")
+ 
+
+    to_date = get_date(1)
+    print(f"Data final seleccionada: -------------------> {to_date.strftime('%d/%m/%Y')}")
+
+    #Espera 1 segon per a que es mostri la data final
+    time.sleep(1)
+
+
+    # Darle la opcion al usuario de revisar las fechas seleccionadas y poder cancelarlas y volver a seleccionarlas o simplemente continuar o terminar el programa
+    # creamos un menu con las opciones de revisar las fechas, continuar o terminar el programa
+
+
+    print("Opcions:")
+    print("1. Revisar les dates")
+    print("2. Continuar")
+    print("3. Sortir")
+
+    print()
+    
+    # creamos un bucle para que el usuario pueda elegir una opcion hasta que la opcion sea correcta
+    while True:
+        try:
+            # pedimos al usuario que introduzca una opcion
+            opcion = int(input("Introdueix una opció: "))
+            # si la opcion es correcta salimos del bucle
+            if opcion == 1:
+                selected_date = get_date(0)
+                print(f"Data d'inici seleccionada: -------------------> {selected_date.strftime('%d/%m/%Y')}")
+
+                to_date = get_date(1)
+                print(f"Data final seleccionada: -------------------> {to_date.strftime('%d/%m/%Y')}")
+                time.sleep(1)
+                continue
+            elif opcion == 2:
+                break
+            elif opcion == 3:
+                exit()
+            else:
+                print("Opció incorrecta")
+                continue
+        except ValueError:
+            print("Opció incorrecta")
+            continue
+    
+
     
     from_date_week = selected_date - datetime.timedelta(days=7)
     
-   
     # Conectar con Outlook y obtener la carpeta de la bandeja de entrada
-    outlook = conenct_to_outook()
+    print("Connectant al vostre compte d'Outlook...")
+    outlook = connect_to_outlook()
     inbox = get_inbox_folder(outlook, "gestioversions@bcn.cat","Bandeja de entrada")
-    print(f"Inbox: {inbox}")
-    
+   
+
     # Obtener los mensajes de la bandeja de entrada en el rango de fechas especificado
-    print("Getting messages...")
-    print(f"Getting messages from {from_date_week} to {to_date}")
+    print(f"Obtenint els missatges de {from_date_week.strftime('%d/%m/%Y')} fins {to_date.strftime('%d/%m/%Y')}")
+    print()
+    print("Si us plau espera un moment...")
+    print()
     messages = get_inbox_messages(inbox, from_date_week, to_date)
-    
+
     
     # Extraer información relevante de los correos electrónicos y clasificarlos en el dataframe
-    print("Extracting emails...")
-    print(f"Extracting emails from {selected_date} to {to_date} to generate the Excel file")
+    print(f"Realitzar l'extracció dels mails de {selected_date.strftime('%d/%m/%Y')} fins {to_date.strftime('%d/%m/%Y')}")
     emails, emails_no_clasificados, datas = extract_emails(messages, selected_date, to_date)
+    
     df = classify_message_and_inter_into_dataframe(emails, df)
+
+    #Si el dataframe esta vacio, mostrar un mensaje de error y salir del programa
+    if df.empty:
+        messagebox.showerror("Error", "No s'han trobat correus electrònics al rang de dates especificat")
+        exit()
     
     # Agregar la columna 'datas' en el orden de la lista, pero solo a aquellas filas del dataframe que no tengan fecha
     df.loc[df['Data'] == '', 'Data'] = datas
     
-
     # Pasar el dataframe a un archivo de Excel y guardar en disco
-    pass_df_to_excel(df, from_date_week, to_date)
+    pass_df_to_excel(df, selected_date, to_date)
+
+    print("Fitxer Excel generat correctament !!")
+    print()
+    print("###############################################")
+    print("##  fi del programa                          ##")
+    print("###############################################")
     
+    
+    
+#call the main function
+if __name__ == "__main__":
+    main()
+
     
  
         
