@@ -1,18 +1,24 @@
 import datetime
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import (
-    PatternFill,Alignment, Font
-)
-import win32com.client
-from tkinter import Tk, Button, messagebox, Label, Entry, DISABLED
-from tkcalendar import Calendar
-import datetime
 import os
-import messagebox
 import time
 import warnings
+
+import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
+import win32com.client
+from tkinter import Tk, Button, messagebox
+from tkcalendar import Calendar
+
+import babel
+from babel.numbers import format_currency
+
+#import win32timezone
+import win32timezone
+from openpyxl.chart import BarChart, Reference
+
 warnings.filterwarnings("ignore")
+
 
 
 
@@ -33,13 +39,11 @@ categories = {
         "DevOps", "Petició desplegament/execució scripts",
         "Petició desplegament/subscripció",
         "Petició desplegament/publicació d'API",
-        "Petició de creació d'esquema BD"
+        "Petició de creació d'esquema BD",
+        "Petició desplegament/creació esquema"
     ],
     "Cognos": [".CBI", ".CDM"],
-    "Paquet": [
-        "Distribució", "Paquetització",
-        "Crear petició de canvi per distribuir el paquet"
-    ],
+    "Paquet": ["Fi Distribució tècnica paquet"],
     "BBDD": [".BD", "Instalables+Scripts+Normal"]
 }
 
@@ -54,7 +58,7 @@ entornos = {
 df = pd.DataFrame(
     columns=[
         "Entorno", "Aplicació", "Tecnologia", "Resultat", "Urgent",
-        "Incidència associada?", "Observacions", "Data"
+        "Té incidència associada?","incidència associada", "Observacions", "Data"
     ]
 )
 
@@ -83,7 +87,7 @@ def get_all_messages_in_folder(folder, from_date, to_date):
     
     for item in folder.Items:
         if isinstance(item, win32com.client.CDispatch) and item.Class == 43:
-            if item.SentOn.date() >= from_date and item.SentOn.date() <= to_date and not any(word in item.subject for word in entornos["pre"]):
+            if  not any(word in item.subject for word in entornos["pre"]):
                 messages.append(item)      
     if folder.Folders.Count > 0:
         for subfolder in folder.Folders:
@@ -114,6 +118,10 @@ def extract_emails(messages, start_date, end_date):
             date_str = message.Body.split("Es planifica el desplegament en l'horari:")[-1].split(" ")[1]
         elif "Per la data :" in message.Body:
             date_str = message.Body.split("Per la data :")[-1].split(" ")[1].split(".")[0]
+
+        elif "Fi Distribució tècnica paquet" in message.Subject:
+            #date_str sera la fecha que se envio el correo
+            date_str = message.SentOn.strftime("%Y-%m-%d")
             
         try:
             date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -141,6 +149,10 @@ def classify_message_and_inter_into_dataframe(messages, df):
         categories_list = message.Categories
         urgent = "SI" if subject.startswith("URGENT") else "NO"
         resultat=""
+        incidencia = ""
+        check = ""
+        fecha=""
+
         
         if "KO" in categories_list:
             resultat = "KO"
@@ -152,9 +164,33 @@ def classify_message_and_inter_into_dataframe(messages, df):
         if "Instalables+Scripts+Normal" in subject and tecnologia != "BBDD":
             data = message.Body.split("Per la data :")[-1].split(" ")[1].split(".")[0]
             data = datetime.datetime.strptime(data, "%d/%m/%Y").date()
-            rows.append([ENTORNO, subject, "BBDD", resultat, urgent, "", observacions, data])
-            
-        rows.append([ENTORNO, subject, tecnologia, resultat, urgent, "", observacions, ""])
+            rows.append([ENTORNO, subject, "BBDD", resultat, urgent, "","", observacions, data])
+
+        if tecnologia == "Devops":
+            #buscamos en el mensaje si hay alguna incidencia asociada "Aquesta petició resol una incidència?"
+            if "Aquesta petició resol una incidència?" in message.Body:
+                #Tomamos la respuesta que es lo que esta entre "Aquesta petició resol una incidència?" y un espacio en blanco, ejemplo Aquesta petició resol una incidència? No
+                check = message.Body.split("Aquesta petició resol una incidència?")[-1].split("\r")[0].strip(" ")
+                #Si la respuesta es "SI" buscamos la incidencia que es lo que esta despues de "Indiqueu el codi de la incidència:"
+                if check == "Sí":
+                    #La incidencia es todo lo que esta despues de Indiqueu el codi de la incidència: y antes del primer \r
+                    incidencia = message.Body.split("Indiqueu el codi de la incidència:")[-1].split("\r")[0]
+                    #si la incidencia esta vacia o no tiene ningun valor ponemos "No hi ha incidència associada"
+                    if not incidencia:
+                        incidencia = "No hi ha incidència associada"
+                        check = "No"
+                    elif not any(char.isdigit() for char in incidencia) or len(incidencia) < 2:
+                        incidencia = "No hi ha incidència associada"
+                        check = "No"
+
+                else:
+                    incidencia = "No hi ha incidència associada"
+
+        if tecnologia == "Paquet":
+            if "Petició:" in message.body:
+                subject = message.body.split("Petició:")[-1].split("\r")[0].strip(" ")
+
+        rows.append([ENTORNO, subject, tecnologia, resultat, urgent, check,incidencia, observacions, ""])
     
     new_df = pd.DataFrame(rows, columns=df.columns)
     
@@ -171,9 +207,10 @@ def pass_df_to_excel(df, from_date, to_date):
     ws['C1'] = "Tecnologia"
     ws['D1'] = "Resultat"
     ws['E1'] = "Urgent"
-    ws['F1'] = "Incidència associada?"
-    ws['G1'] = "Observacions"
-    ws['H1'] = "Data"
+    ws['F1'] = "Té incidència associada?"
+    ws['G1'] = "incidència associada"
+    ws['H1'] = "Observacions"
+    ws['I1'] = "Data"
 
     # Iterate over the dataframe and append the data to the Excel file
     for index, row in df.iterrows():
@@ -183,7 +220,8 @@ def pass_df_to_excel(df, from_date, to_date):
             row["Tecnologia"],
             row["Resultat"],
             row["Urgent"],
-            row["Incidència associada?"],
+            row["Té incidència associada?"],
+            row["incidència associada"],
             row["Observacions"],
             row["Data"]
         ])
@@ -204,9 +242,11 @@ def pass_df_to_excel(df, from_date, to_date):
     ws.column_dimensions['C'].width = 20
     ws.column_dimensions['D'].width = 20
     ws.column_dimensions['E'].width = 20
-    ws.column_dimensions['F'].width = 50
-    ws.column_dimensions['G'].width = 150
-    ws.column_dimensions['H'].width = 20
+    ws.column_dimensions['F'].width = 20
+    ws.column_dimensions['G'].width = 20
+    ws.column_dimensions['H'].width = 100
+    ws.column_dimensions['I'].width = 20
+
 
     # Define the fill color for odd rows
     fill = PatternFill(start_color='b3d2ff', end_color='FFC000', fill_type='solid')
@@ -220,7 +260,99 @@ def pass_df_to_excel(df, from_date, to_date):
     # crear carpeta si no existe
     if not os.path.exists("Informes_Generados"):
         os.makedirs("Informes_Generados")
+
+
+    # Crear tabla
+    ws2 = wb.create_sheet("Resumen")
+    ws2['A1'] = "Tecnologia"
+    ws2['B1'] = "Producció OK"
+    ws2['C1'] = "Producció KO"
+    ws2['D1'] = "Total Producció"
+
+    # Aplicar estilo a la cabecera
+    for cell in ws2['1:1']:
+        cell.font = font
+        cell.alignment = alignment
+        cell.fill = PatternFill(start_color='003f99', end_color='0000ff', fill_type='solid')
+
+    # Ajustar el ancho de las columnas
+    ws2.column_dimensions['A'].width = 20
+    ws2.column_dimensions['B'].width = 20
+    ws2.column_dimensions['C'].width = 20
+    ws2.column_dimensions['D'].width = 20
+
+    # Definir diccionario de tecnologías
+    tecnologias = {
+        "Devops": 2,
+        "Paquet": 3,
+        "Websphere": 4,
+        "ClientServidor": 5,
+        "BIM": 6,
+        "NET": 7,
+        "BBDD": 8,
+        "Documentum": 9,
+        "Cognos": 10,
+        "Porlet": 11
+    }
+
+    # Iterar sobre las tecnologías en el diccionario
+    for tecnologia, fila in tecnologias.items():
+        # Ponemos la tecnología en la tabla
+        ws2.cell(row=fila, column=1).value = tecnologia
+
+        # Contar los OK y KO de la tecnología en el DataFrame
+        tecnologia_ok = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "OK")].count()[0]
+        tecnologia_ko = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "KO")].count()[0]
+
+        # Poner la suma en la columna OK, KO y Total
+        ws2.cell(row=fila, column=2).value = tecnologia_ok
+        ws2.cell(row=fila, column=3).value = tecnologia_ko
+        ws2.cell(row=fila, column=4).value = tecnologia_ok + tecnologia_ko
+
     
+    # Aplicar estilo a las filas impares
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[0].row % 2 == 0:
+            for cell in row:
+                cell.fill = fill
+
+
+    #eliminar las filas donde el "Total Producció" es 0
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[3].value == 0:
+            ws2.delete_rows(row[0].row)
+
+    contador= 0
+    #eliminar las filas que no tengan ningun valor
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[0].value == None:
+            ws2.delete_rows(row[0].row)
+            contador = contador + 1
+
+
+    # Agregar una ultima fila con el total de cada columna
+    n=10-contador
+    ws2.cell(row=ws2.max_row + 1, column=1).value = "TOTAL"
+    ws2.cell(row=ws2.max_row, column=2).value = "=SUM(B2:B"+str(n)+")"
+    ws2.cell(row=ws2.max_row, column=3).value = "=SUM(C2:C"+str(n)+")"
+    ws2.cell(row=ws2.max_row, column=4).value = "=SUM(D2:D"+str(n)+")"
+
+    # A partir de la tabla generada en la hoja u "Resumen", crear un gráfico de barras
+    chart = BarChart()
+    chart.type = "col"
+    chart.style = 10
+    chart.title = "Resumen"
+    chart.y_axis.title = "Número de incidencias"
+    chart.x_axis.title = "Tecnología"
+
+    data = Reference(ws2, min_col=2, min_row=1, max_col=4, max_row=11)
+    cats = Reference(ws2, min_col=1, min_row=2, max_row=11)
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+    chart.shape = 4
+    ws2.add_chart(chart, "G2")
+
+    # Guardar el excel
     wb.save(f"Informes_Generados/Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
     
 
@@ -265,10 +397,6 @@ def get_date(val):
     if selected_date is None:
         raise ValueError("No se ha seleccionado ninguna fecha")
     return selected_date
-
-
-
-   
 
 
 
@@ -352,8 +480,12 @@ def main():
     # Extraer información relevante de los correos electrónicos y clasificarlos en el dataframe
     print(f"Realitzar l'extracció dels mails de {selected_date.strftime('%d/%m/%Y')} fins {to_date.strftime('%d/%m/%Y')}")
     emails, emails_no_clasificados, datas = extract_emails(messages, selected_date, to_date)
+
+    
     
     df = classify_message_and_inter_into_dataframe(emails, df)
+
+    print("Extracció realitzada correctament, se ha creat al dataset !!")
 
     #Si el dataframe esta vacio, mostrar un mensaje de error y salir del programa
     if df.empty:
@@ -374,9 +506,21 @@ def main():
     
     
     
-#call the main function
+
 if __name__ == "__main__":
-    main()
+    # Ejecutar el programa y hacer un try/except para capturar cualquier excepción
+    try:
+        main()
+        input("Premeu una tecla per a continuar...")
+    except Exception as e:
+        messagebox.showerror("Error", f"Ha ocurrido un error: {e}")
+        exit()
+
+ 
+
+
+
+
 
     
  
