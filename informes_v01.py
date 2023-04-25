@@ -2,25 +2,22 @@ import datetime
 import os
 import time
 import warnings
-
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
+from openpyxl.styles import PatternFill, Alignment, Font, Border, Side,NamedStyle
+
 import win32com.client
 from tkinter import Tk, Button, messagebox
 from tkcalendar import Calendar
-
 import babel
 from babel.numbers import format_currency
+
 
 #import win32timezone
 import win32timezone
 from openpyxl.chart import BarChart, Reference
 
 warnings.filterwarnings("ignore")
-
-
-
 
 now = datetime.datetime.now()
 
@@ -57,7 +54,7 @@ entornos = {
 # Define dataframes containing the netx columns:
 df = pd.DataFrame(
     columns=[
-        "Entorno", "Aplicació", "Tecnologia", "Resultat", "Urgent",
+        "Entorn", "Aplicació", "Tecnologia", "Resultat", "Urgent",
         "Té incidència associada?","incidència associada", "Observacions", "Data"
     ]
 )
@@ -143,7 +140,7 @@ def extract_emails(messages, start_date, end_date):
 def classify_message_and_inter_into_dataframe(messages, df):
     rows = []
     for message in messages:
-        tecnologia = "NO DEFINIDO"
+        tecnologia = "NO DEFINIT"
         observacions = message.Subject.split("Error:")[1].strip() if "Error:" in message.Subject else ""
         subject = message.Subject.split("Error:")[0].strip() or message.Subject.split("ERROR:")[0].strip()
         categories_list = message.Categories
@@ -196,13 +193,15 @@ def classify_message_and_inter_into_dataframe(messages, df):
     
     return new_df
 
+
+
 def pass_df_to_excel(df, from_date, to_date):
     wb = Workbook()
     ws = wb.active
     ws.title = f"Informes_Gestió_Versions_{from_date}_{to_date}"
 
     # Define the header of the Excel file
-    ws['A1'] = "Entorno"
+    ws['A1'] = "Entorn"
     ws['B1'] = "Aplicació"
     ws['C1'] = "Tecnologia"
     ws['D1'] = "Resultat"
@@ -215,7 +214,7 @@ def pass_df_to_excel(df, from_date, to_date):
     # Iterate over the dataframe and append the data to the Excel file
     for index, row in df.iterrows():
         ws.append([
-            row["Entorno"],
+            row["Entorn"],
             row["Aplicació"],
             row["Tecnologia"],
             row["Resultat"],
@@ -258,8 +257,8 @@ def pass_df_to_excel(df, from_date, to_date):
                 cell.fill = fill
 
     # crear carpeta si no existe
-    if not os.path.exists("Informes_Generados"):
-        os.makedirs("Informes_Generados")
+    if not os.path.exists("Informes_Generats"):
+        os.makedirs("Informes_Generats")
 
 
     # Crear tabla
@@ -292,7 +291,7 @@ def pass_df_to_excel(df, from_date, to_date):
         "BBDD": 8,
         "Documentum": 9,
         "Cognos": 10,
-        "Porlet": 11
+        "Porlet": 11,
     }
 
     # Iterar sobre las tecnologías en el diccionario
@@ -304,10 +303,14 @@ def pass_df_to_excel(df, from_date, to_date):
         tecnologia_ok = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "OK")].count()[0]
         tecnologia_ko = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "KO")].count()[0]
 
-        # Poner la suma en la columna OK, KO y Total
-        ws2.cell(row=fila, column=2).value = tecnologia_ok
-        ws2.cell(row=fila, column=3).value = tecnologia_ko
-        ws2.cell(row=fila, column=4).value = tecnologia_ok + tecnologia_ko
+        if tecnologia_ok + tecnologia_ko == 0:
+            ws2.delete_rows(fila)
+            continue
+        else:
+            # Poner la suma en la columna OK, KO y Total
+            ws2.cell(row=fila, column=2).value = tecnologia_ok
+            ws2.cell(row=fila, column=3).value = tecnologia_ko
+            ws2.cell(row=fila, column=4).value = tecnologia_ok + tecnologia_ko
 
     
     # Aplicar estilo a las filas impares
@@ -330,30 +333,46 @@ def pass_df_to_excel(df, from_date, to_date):
             contador = contador + 1
 
 
+    # Obtener los datos de la hoja de cálculo y convertirlos en una lista de tuplas
+    data = []
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=4):
+        data.append((row[0].value, row[1].value, row[2].value, row[3].value))
+
+    # Ordenar la lista de tuplas por la columna "Total Producció" en orden descendente
+    sorted_data = sorted(data, key=lambda x: x[3], reverse=True)
+
+    # Reescribir la hoja de cálculo con los datos ordenados
+    for i, row in enumerate(sorted_data, start=2):
+        ws2.cell(row=i, column=1).value = row[0]
+        ws2.cell(row=i, column=2).value = row[1]
+        ws2.cell(row=i, column=3).value = row[2]
+        ws2.cell(row=i, column=4).value = row[3]
+
+
     # Agregar una ultima fila con el total de cada columna
-    n=10-contador
     ws2.cell(row=ws2.max_row + 1, column=1).value = "TOTAL"
-    ws2.cell(row=ws2.max_row, column=2).value = "=SUM(B2:B"+str(n)+")"
-    ws2.cell(row=ws2.max_row, column=3).value = "=SUM(C2:C"+str(n)+")"
-    ws2.cell(row=ws2.max_row, column=4).value = "=SUM(D2:D"+str(n)+")"
+    ws2.cell(row=ws2.max_row, column=2).value = "=SUM(B2:B"+str(ws2.max_row-1)+")"
+    ws2.cell(row=ws2.max_row, column=3).value = "=SUM(C2:C"+str(ws2.max_row-1)+")"
+    ws2.cell(row=ws2.max_row, column=4).value = "=SUM(D2:D"+str(ws2.max_row-1)+")"
 
     # A partir de la tabla generada en la hoja u "Resumen", crear un gráfico de barras
     chart = BarChart()
     chart.type = "col"
     chart.style = 10
-    chart.title = "Resumen"
-    chart.y_axis.title = "Número de incidencias"
+    chart.title = "Resum"
+    chart.y_axis.title = "Número d'Incidències"
     chart.x_axis.title = "Tecnología"
 
-    data = Reference(ws2, min_col=2, min_row=1, max_col=4, max_row=11)
-    cats = Reference(ws2, min_col=1, min_row=2, max_row=11)
+    # Agregar los datos y categorías al gráfico
+    data = Reference(ws2, min_col=2, min_row=1, max_col=4, max_row=ws2.max_row)
+    cats = Reference(ws2, min_col=1, min_row=2, max_row=ws2.max_row)
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(cats)
     chart.shape = 4
     ws2.add_chart(chart, "G2")
 
-    # Guardar el excel
-    wb.save(f"Informes_Generados/Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
+  
+    wb.save(f"Informes_Generats/Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
     
 
 def get_date(val):
@@ -390,12 +409,12 @@ def get_date(val):
     btn_cancel = Button(root, text="CANCEL·LAR", command=cancel)
     btn_cancel.pack(side="right", pady=10, padx=10)
 
-    root.protocol("WM_DELETE_WINDOW", lambda: messagebox.showerror("Error", "Debes seleccionar una fecha"))
+    root.protocol("WM_DELETE_WINDOW", lambda: messagebox.showerror("Error", "Heu de seleccionar una data"))
 
     root.mainloop()
 
     if selected_date is None:
-        raise ValueError("No se ha seleccionado ninguna fecha")
+        raise ValueError("No s'ha seleccionat cap data")
     return selected_date
 
 
@@ -414,7 +433,6 @@ def main():
      # Obtener la fecha seleccionada por el usuario y calcular la fecha inicial restando 4 días
     selected_date = get_date(0)
     print(f"Data d'inici seleccionada: -------------------> {selected_date.strftime('%d/%m/%Y')}")
- 
 
     to_date = get_date(1)
     print(f"Data final seleccionada: -------------------> {to_date.strftime('%d/%m/%Y')}")
@@ -422,18 +440,13 @@ def main():
     #Espera 1 segon per a que es mostri la data final
     time.sleep(1)
 
-
     # Darle la opcion al usuario de revisar las fechas seleccionadas y poder cancelarlas y volver a seleccionarlas o simplemente continuar o terminar el programa
     # creamos un menu con las opciones de revisar las fechas, continuar o terminar el programa
-
-
     print("Opcions:")
     print("1. Revisar les dates")
     print("2. Continuar")
     print("3. Sortir")
-
     print()
-    
     # creamos un bucle para que el usuario pueda elegir una opcion hasta que la opcion sea correcta
     while True:
         try:
