@@ -12,7 +12,6 @@ from tkcalendar import Calendar
 import babel
 from babel.numbers import format_currency
 
-
 #import win32timezone
 import win32timezone
 from openpyxl.chart import BarChart, Reference
@@ -40,7 +39,7 @@ categories = {
         "Petició desplegament/creació esquema"
     ],
     "Cognos": [".CBI", ".CDM"],
-    "Paquet": ["Fi Distribució tècnica paquet"],
+    "Paquet": ["Fi Distribució tècnica paquet","Distribucio pegats seguretat anual"],
     "BBDD": [".BD", "Instalables+Scripts+Normal"]
 }
 
@@ -83,7 +82,7 @@ def get_all_messages_in_folder(folder, from_date, to_date):
     messages = []
     
     for item in folder.Items:
-        if isinstance(item, win32com.client.CDispatch) and item.Class == 43:
+        if isinstance(item, win32com.client.CDispatch) and item.Class == 43 and from_date <= item.SentOn.date() <= to_date:
             if  not any(word in item.subject for word in entornos["pre"]):
                 messages.append(item)      
     if folder.Folders.Count > 0:
@@ -100,7 +99,6 @@ def get_inbox_messages(inbox, from_date, to_date):
 
 
 def extract_emails(messages, start_date, end_date):
-    emails_no_classified = []
     datas = []
     emails = []
     
@@ -119,6 +117,9 @@ def extract_emails(messages, start_date, end_date):
         elif "Fi Distribució tècnica paquet" in message.Subject:
             #date_str sera la fecha que se envio el correo
             date_str = message.SentOn.strftime("%Y-%m-%d")
+
+        elif "Distribucio pegats seguretat anual" in message.Subject:
+            date_str = message.Body.split("Data i hora fi:")[-1].split(" ")[1].split(".")[0]
             
         try:
             date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -132,9 +133,9 @@ def extract_emails(messages, start_date, end_date):
             datas.append(date)
             emails.append(message)
             continue
-        emails_no_classified.append(message)
+       
         
-    return emails, emails_no_classified, datas
+    return emails, datas
 
 
 def classify_message_and_inter_into_dataframe(messages, df):
@@ -186,10 +187,14 @@ def classify_message_and_inter_into_dataframe(messages, df):
         if tecnologia == "Paquet":
             if "Petició:" in message.body:
                 subject = message.body.split("Petició:")[-1].split("\r")[0].strip(" ")
+            else:
+                subject = message.body.split("Tipus CI i Nom: ")[-1].split("\r")[0].strip(" ")
 
         rows.append([ENTORNO, subject, tecnologia, resultat, urgent, check,incidencia, observacions, ""])
     
     new_df = pd.DataFrame(rows, columns=df.columns)
+
+    
     
     return new_df
 
@@ -335,7 +340,7 @@ def pass_df_to_excel(df, from_date, to_date):
 
     # Obtener los datos de la hoja de cálculo y convertirlos en una lista de tuplas
     data = []
-    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=4):
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row-contador, min_col=1, max_col=4):
         data.append((row[0].value, row[1].value, row[2].value, row[3].value))
 
     #Eliminar los none de la lista
@@ -350,6 +355,12 @@ def pass_df_to_excel(df, from_date, to_date):
         ws2.cell(row=i, column=2).value = row[1]
         ws2.cell(row=i, column=3).value = row[2]
         ws2.cell(row=i, column=4).value = row[3]
+
+    #eliminar las filas repetidas
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[0].value == row[1].value:
+            ws2.delete_rows(row[0].row)
+            
 
 
     # Agregar una ultima fila con el total de cada columna
@@ -474,8 +485,6 @@ def main():
             print("Opció incorrecta")
             continue
     
-
-    
     from_date_week = selected_date - datetime.timedelta(days=7)
     
     # Conectar con Outlook y obtener la carpeta de la bandeja de entrada
@@ -491,14 +500,13 @@ def main():
     print()
     messages = get_inbox_messages(inbox, from_date_week, to_date)
 
-    
     # Extraer información relevante de los correos electrónicos y clasificarlos en el dataframe
     print(f"Realitzar l'extracció dels mails de {selected_date.strftime('%d/%m/%Y')} fins {to_date.strftime('%d/%m/%Y')}")
-    emails, emails_no_clasificados, datas = extract_emails(messages, selected_date, to_date)
+    emails,datas = extract_emails(messages, selected_date, to_date)
 
-    
-    
     df = classify_message_and_inter_into_dataframe(emails, df)
+
+
 
     print("Extracció realitzada correctament, se ha creat al dataset !!")
 
@@ -520,8 +528,6 @@ def main():
     print("###############################################")
     
     
-    
-
 if __name__ == "__main__":
     # Ejecutar el programa y hacer un try/except para capturar cualquier excepción
     try:

@@ -14,6 +14,11 @@ from tkinter import Tk, Button, messagebox,Label
 from tkcalendar import Calendar, DateEntry
 import locale
 
+locale.setlocale(locale.LC_ALL, 'ca_ES.utf8') #Catalan
+
+#import dataframe_to_rows
+from openpyxl.utils.dataframe import dataframe_to_rows
+
 from datetime import timedelta
 from openpyxl.chart import BarChart, Reference
 warnings.filterwarnings("ignore")
@@ -30,8 +35,8 @@ ENTORNO = "PRODUCCION"
 # Global variables and information to the classificator
 categories = {
     "Websphere": [".w61"],
-    "NET": [".NET"],
-    "ClientServidor": [".NT"],
+    ".NET": [".NET"],
+    "Client/Servidor": [".NT"],
     "BIM": [".BIM"],
     "Documentum": [".doc", ".wdk"],
     "Portlet": [".plr"],
@@ -209,6 +214,15 @@ def pass_df_to_excel(df, from_date, to_date):
     ws = wb.active
     ws.title = f"Informes_Gestió_Versions_{from_date}_{to_date}"
 
+    #contar el total de urgents, es decir aquellos que Urgent = SI
+    total_urgents = df[df["Urgent"] == "SI"].shape[0]
+
+    #contar incidencias asociadas, es decir aquellos que Té incidència associada? = SI
+    total_incidencies = df[df["Té incidència associada?"] == "Sí"].shape[0]
+
+    #total desplegaments
+    total_desplegaments = df.shape[0]
+
     # Define the header of the Excel file
     ws['A1'] = "Entorn"
     ws['B1'] = "Aplicació"
@@ -303,76 +317,49 @@ def pass_df_to_excel(df, from_date, to_date):
         "Porlet": 11,
     }
 
-    # Iterar sobre las tecnologías en el diccionario
+    
+    # crear un nuevo dataset con [Tecnologia,Producció OK,Producció KO,Total Producció]
+    dataResum = []
     for tecnologia, fila in tecnologias.items():
-        # Ponemos la tecnología en la tabla
-        ws2.cell(row=fila, column=1).value = tecnologia
-
-        # Contar los OK y KO de la tecnología en el DataFrame
         tecnologia_ok = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "OK")].count()[0]
         tecnologia_ko = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "KO")].count()[0]
+        dataResum.append([tecnologia, tecnologia_ok, tecnologia_ko, tecnologia_ok + tecnologia_ko])
 
-        if tecnologia_ok + tecnologia_ko == 0:
-            ws2.delete_rows(fila)
-            continue
-        else:
-            # Poner la suma en la columna OK, KO y Total
-            ws2.cell(row=fila, column=2).value = tecnologia_ok
-            ws2.cell(row=fila, column=3).value = tecnologia_ko
-            ws2.cell(row=fila, column=4).value = tecnologia_ok + tecnologia_ko
+    dfResum = pd.DataFrame(dataResum, columns=["Tecnologia", "Producció OK", "Producció KO", "Total Producció"])
+
+    # Ordenar el dataset por Total Producció
+    dfResum = dfResum.sort_values(by=['Total Producció'], ascending=False)
 
     
-    # Aplicar estilo a las filas impares
+    # Eliminar valores con total 0
+    dfResum = dfResum[dfResum['Total Producció'] != 0]
+
+    # agregar una fila final con el total para cada columna
+    dfResum.loc['Total'] = dfResum.sum()
+
+    #poner nombre de Total en la ultima fila primera columna
+    dfResum.iloc[-1, dfResum.columns.get_loc('Tecnologia')] = "Total"
+
+
+    # ponemos el datraframe en el excel sin el encabezado
+    for r in dataframe_to_rows(dfResum, index=False, header=False):
+        ws2.append(r)
+        
+
+
+    # Aplicar estilo a la tabla
     for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
         if row[0].row % 2 == 0:
             for cell in row:
                 cell.fill = fill
 
-
-    #eliminar las filas donde el "Total Producció" es 0
-    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
-        if row[3].value == 0:
-            ws2.delete_rows(row[0].row)
-
-    contador= 0
-    #eliminar las filas que no tengan ningun valor
-    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
-        if row[0].value == None:
-            ws2.delete_rows(row[0].row)
-            contador = contador + 1
-
-
-    # Obtener los datos de la hoja de cálculo y convertirlos en una lista de tuplas
-    data = []
-    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=4):
-        data.append((row[0].value, row[1].value, row[2].value, row[3].value))
-
-    #Eliminar los none de la lista
-    data = [x for x in data if x[0] is not None]
-
-    # Ordenar la lista de tuplas por la columna "Total Producció" en orden descendente
-    sorted_data = sorted(data, key=lambda x: x[3], reverse=True)
-
-    # Reescribir la hoja de cálculo con los datos ordenados
-    for i, row in enumerate(sorted_data, start=2):
-        ws2.cell(row=i, column=1).value = row[0]
-        ws2.cell(row=i, column=2).value = row[1]
-        ws2.cell(row=i, column=3).value = row[2]
-        ws2.cell(row=i, column=4).value = row[3]
-
-
-    # Agregar una ultima fila con el total de cada columna
-    ws2.cell(row=ws2.max_row + 1, column=1).value = "TOTAL"
-    ws2.cell(row=ws2.max_row, column=2).value = "=SUM(B2:B"+str(ws2.max_row-1)+")"
-    ws2.cell(row=ws2.max_row, column=3).value = "=SUM(C2:C"+str(ws2.max_row-1)+")"
-    ws2.cell(row=ws2.max_row, column=4).value = "=SUM(D2:D"+str(ws2.max_row-1)+")"
-
-    # A partir de la tabla generada en la hoja u "Resumen", crear un gráfico de barras
+    
+    # A partir del dataframe , crear un gráfico de barras
     chart = BarChart()
     chart.type = "col"
     chart.style = 10
     chart.title = "Resum"
-    chart.y_axis.title = "Número d'Incidències"
+    chart.y_axis.title = "Desplegaments"
     chart.x_axis.title = "Tecnología"
 
     # Agregar los datos y categorías al gráfico
@@ -380,11 +367,21 @@ def pass_df_to_excel(df, from_date, to_date):
     cats = Reference(ws2, min_col=1, min_row=2, max_row=ws2.max_row)
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(cats)
-    chart.shape = 4
-    ws2.add_chart(chart, "G2")
+
+    # Agregar el gráfico a la hoja
+    ws2.add_chart(chart, "F2")
+
+    # concatenar la siguiente cadena Desplegaments del 01/01/2021 al 31/01/2021
+    ws2['A10'] = f"Desplegaments del {from_date} al {to_date}"
+
+    # concatenar la siguiente cadena De n desplegaments, n han sigut urgents, d’aquests, n tenien incidència associada
+    ws2['A12'] = f"De {total_desplegaments} desplegaments, {total_urgents} han sigut urgents, d’aquests, {total_incidencies} tenien incidència associada."
 
     wb.save(f"Informes_Generats/Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
     
+
+
+
 
 def get_date_range(start_date=None, end_date=None):
     """Muestra un widget de rango de fechas para que el usuario seleccione un rango."""
@@ -457,47 +454,91 @@ def exit_program(root):
         root.destroy()
         sys.exit()
         
+def get_date(val):
+    """Muestra un calendario para que el usuario seleccione una fecha."""
+    root = Tk()
+    root.geometry("300x300")
+    if val == 0:
+        root.title("Seleccionar data d'inici")
+    else:
+        root.title("Seleccionar data final")
+
+    def get_selected_date():
+        """Obtiene la fecha seleccionada por el usuario y cierra la ventana."""
+        nonlocal selected_date
+        selected_date = cal.selection_get()
+        root.destroy()
+
+    def cancel():
+        """Cierra la ventana sin seleccionar una fecha."""
+        nonlocal selected_date
+        selected_date = None
+        root.destroy()
+        exit()
+
+    selected_date = None
+    
+
+    cal = Calendar(root, selectmode="day", year=now.year , month=now.month, day=now.day,maxdate=now)
+    cal.pack(pady=20)
+
+    btn_ok = Button(root, text="OK", command=get_selected_date)
+    btn_ok.pack(side="left", pady=10, padx=10)
+
+    btn_cancel = Button(root, text="CANCEL·LAR", command=cancel)
+    btn_cancel.pack(side="right", pady=10, padx=10)
+
+    root.protocol("WM_DELETE_WINDOW", lambda: messagebox.showerror("Error", "Heu de seleccionar una data"))
+
+    root.mainloop()
+
+    if selected_date is None:
+        raise ValueError("No s'ha seleccionat cap data")
+    return selected_date
+
 def main():
     global df
-    # Mostramos mensajes de incializacion del programa
-    print("###############################################")
-    print("##                                           ##")
-    print("##  Programa de generació d'informes de      ##")
-    print("##  gestió de desplegaments d'aplicacions    ##")
-    print("##                                           ##")
-    print("###############################################")
-    print()
-    selected_date, to_date = get_date_range()
-     # Obtener la fecha seleccionada por el usuario y calcular la fecha inicial restando 4 días
-    #selected_date = get_date(0)
+    # Obtener la fecha seleccionada por el usuario y calcular la fecha inicial restando 4 días
+    selected_date = get_date(0)
     print(f"Data d'inici seleccionada: -------------------> {selected_date.strftime('%d/%m/%Y')}")
 
-    #to_date = get_date(1)
+    to_date = get_date(1)
     print(f"Data final seleccionada: -------------------> {to_date.strftime('%d/%m/%Y')}")
 
     #Espera 1 segon per a que es mostri la data final
     time.sleep(1)
 
-    root = Tk()
-    root.title("Menú")
-    root.geometry("300x300")
+    # Darle la opcion al usuario de revisar las fechas seleccionadas y poder cancelarlas y volver a seleccionarlas o simplemente continuar o terminar el programa
+    # creamos un menu con las opciones de revisar las fechas, continuar o terminar el programa
+    print("Opcions:")
+    print("1. Revisar les dates")
+    print("2. Continuar")
+    print("3. Sortir")
+    print()
+    # creamos un bucle para que el usuario pueda elegir una opcion hasta que la opcion sea correcta
+    while True:
+        try:
+            # pedimos al usuario que introduzca una opcion
+            opcion = int(input("Introdueix una opció: "))
+            # si la opcion es correcta salimos del bucle
+            if opcion == 1:
+                selected_date = get_date(0)
+                print(f"Data d'inici seleccionada: -------------------> {selected_date.strftime('%d/%m/%Y')}")
 
-    label = Label(root, text="Seleccioneu una opció:", font=("Helvetica", 16), fg="black", bg="white")
-    label.pack(pady=10)
-
-    btn_date_range = Button(root, text="Revisar les dates", command=lambda: get_date_range(selected_date, to_date), width=20, height=1, bg="white", fg="green", font=("Helvetica", 12))
-    btn_date_range.pack(pady=10)
-
-    btn_continue = Button(root, text="Continuar", command=root.destroy, width=20, height=1, bg="white", fg="green", font=("Helvetica", 12))
-    btn_continue.pack(pady=10)
-
-    btn_exit = Button(root, text="Sortir", command=lambda: exit_program(root), width=20, height=1, bg="red", fg="white", font=("Helvetica", 12))
-    btn_exit.pack(pady=10)
-
-    # si se presiona la X de la ventana, se pregunta si se desea salir
-    root.protocol("WM_DELETE_WINDOW", lambda: exit_program(root))
-
-    root.mainloop()
+                to_date = get_date(1)
+                print(f"Data final seleccionada: -------------------> {to_date.strftime('%d/%m/%Y')}")
+                time.sleep(1)
+                continue
+            elif opcion == 2:
+                break
+            elif opcion == 3:
+                exit()
+            else:
+                print("Opció incorrecta")
+                continue
+        except ValueError:
+            print("Opció incorrecta")
+            continue
 
     from_date_week = selected_date - datetime.timedelta(days=7)
     
