@@ -39,7 +39,7 @@ categories = {
         "Petició desplegament/creació esquema"
     ],
     "Cognos": [".CBI", ".CDM"],
-    "Paquet": ["Fi Distribució tècnica paquet","Distribucio pegats seguretat anual"],
+    "Paquet": ["Fi Distribució tècnica paquet","Distribucio pegats seguretat anual","SILTRA"],
     "BBDD": [".BD", "Instalables+Scripts+Normal"]
 }
 
@@ -297,6 +297,7 @@ def pass_df_to_excel(df, from_date, to_date):
         "Documentum": 9,
         "Cognos": 10,
         "Porlet": 11,
+        "NO DEFINIDO": 12,
     }
 
     # Iterar sobre las tecnologías en el diccionario
@@ -316,13 +317,6 @@ def pass_df_to_excel(df, from_date, to_date):
             ws2.cell(row=fila, column=2).value = tecnologia_ok
             ws2.cell(row=fila, column=3).value = tecnologia_ko
             ws2.cell(row=fila, column=4).value = tecnologia_ok + tecnologia_ko
-
-    
-    # Aplicar estilo a las filas impares
-    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
-        if row[0].row % 2 == 0:
-            for cell in row:
-                cell.fill = fill
 
 
     #eliminar las filas donde el "Total Producció" es 0
@@ -346,8 +340,25 @@ def pass_df_to_excel(df, from_date, to_date):
     #Eliminar los none de la lista
     data = [x for x in data if x[0] is not None]
 
+    #eliminar las filas repetidas
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[0].value == row[1].value:
+            ws2.delete_rows(row[0].row)
+
     # Ordenar la lista de tuplas por la columna "Total Producció" en orden descendente
     sorted_data = sorted(data, key=lambda x: x[3], reverse=True)
+
+    #eliminar las filas repetidas
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[0].value == row[1].value:
+            ws2.delete_rows(row[0].row)
+
+    # Aplicar estilo a las filas impares
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
+        if row[0].row % 2 == 0:
+            for cell in row:
+                cell.fill = fill
+
 
     # Reescribir la hoja de cálculo con los datos ordenados
     for i, row in enumerate(sorted_data, start=2):
@@ -356,10 +367,7 @@ def pass_df_to_excel(df, from_date, to_date):
         ws2.cell(row=i, column=3).value = row[2]
         ws2.cell(row=i, column=4).value = row[3]
 
-    #eliminar las filas repetidas
-    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
-        if row[0].value == row[1].value:
-            ws2.delete_rows(row[0].row)
+  
             
 
 
@@ -368,6 +376,8 @@ def pass_df_to_excel(df, from_date, to_date):
     ws2.cell(row=ws2.max_row, column=2).value = "=SUM(B2:B"+str(ws2.max_row-1)+")"
     ws2.cell(row=ws2.max_row, column=3).value = "=SUM(C2:C"+str(ws2.max_row-1)+")"
     ws2.cell(row=ws2.max_row, column=4).value = "=SUM(D2:D"+str(ws2.max_row-1)+")"
+
+  
 
     # A partir de la tabla generada en la hoja u "Resumen", crear un gráfico de barras
     chart = BarChart()
