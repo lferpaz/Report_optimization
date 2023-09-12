@@ -1,43 +1,42 @@
 import datetime
+import locale
 import os
-import time
-import warnings
 import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Alignment, Font
 import PySimpleGUI as sg
 from babel import numbers
-import win32timezone
-
-import win32com.client
-from tkinter import Tk, Button, messagebox,Label
-from tkcalendar import Calendar, DateEntry
-import locale
-
-#import dataframe_to_rows
-from openpyxl.utils.dataframe import dataframe_to_rows
-
 from datetime import timedelta
+from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows
+import sys
+import time
+import warnings
+import win32com.client
+import win32timezone
+from tkinter import Tk, Button, messagebox, Label
+from tkcalendar import Calendar, DateEntry
+
 warnings.filterwarnings("ignore")
 
-import sys
 
-
+# GLOBAL VARIABLES
 now = datetime.datetime.now()
 selected_date = None
 to_date = None
+generar_desplegaments_PRO = False
 
 ENTORNO = "PRODUCCION"
 
-# Global variables and information to the classificator
+
+# DATA STRUCTURES
 categories = {
     "Websphere": [".w61"],
     ".NET": [".NET"],
-    "Client/Servidor": [".NT"],         # EasyVista
-    "BIM": [".BIM"],                    # EasyVista
+    "Client/Servidor": [".NT"],         
+    "BIM": [".BIM"],                  
     "Documentum": [".doc", ".wdk"],
-    "Portlet": [".plr"],                # EasyVista
+    "Portlet": [".plr"],                
     "Devops": [
         "Publicació d'API", "Petició desplegament DevOps",
         "DevOps", "Petició desplegament/execució scripts",
@@ -46,20 +45,22 @@ categories = {
         "Petició de creació d'esquema BD",
         "Petició desplegament/creació esquema"
     ],
-    "Cognos": [".CBI", ".CDM"],     # EasyVista
+    "Cognos": [".CBI", ".CDM"],    
     "Paquet": ["Fi Distribució tècnica paquet"],
     "BBDD": [".BD", "Instalables+Scripts+Normal"],
-    "Pegats" : ["Distribucio pegats seguretat"]
+    "Pegats" : ["Distribucio pegats seguretat"],
+    "Otros" : ["SILTRA"]
 }
+
 
 entornos = {
     "pre": [
         "Munteu la maqueta", "Homologar", "Muntar la maqueta",
-        "Muntar maqueta", "Assignació d'Assistència","Petició desplegament genèric SIA a PRE"
+        "Muntar maqueta", "Assignació d'Assistència","Petició desplegament genèric SIA a PRE","Detindre aplicació","RE:","Ok detenció aplicació a PRO"
     ]
 }
 
-# Define dataframes containing the netx columns:
+
 df = pd.DataFrame(
     columns=[
         "Entorn", "Aplicació", "Tecnologia", "Resultat", "Urgent",
@@ -67,8 +68,14 @@ df = pd.DataFrame(
     ]
 )
 
+df_despliegues = pd.DataFrame(
+    columns=[
+        "Responsable","Petició","Tecnologia","Reinici de servidor","Publicació d'API","Subscripció d'API","GetAccess","API + Versio"
+    ]
+)
 
-# Functions to read the files and create the dataframes
+
+# FUNCTIONS TO GET THE MESSAGES FROM OUTLOOK
 def connect_to_outlook():
     try:
         outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
@@ -77,7 +84,7 @@ def connect_to_outlook():
         print("Error al conectar a Outlook:", e)
         return None
 
-# Fuctions to get the messages from the inbox folder
+
 def get_inbox_folder(outlook, folder_name, subfolder_name=None):
     inbox = None
     try:
@@ -114,7 +121,7 @@ def get_inbox_messages(inbox, from_date, to_date):
 
 
 
-# Functions to extract the relevant information from the messages and classify them in the dataframe
+# FUNCTIONS TO EXTRACT THE DATE OF THE MESSAGES
 def extract_emails(messages, start_date, end_date):
     emails_no_classified = []
     datas = []
@@ -141,7 +148,6 @@ def extract_emails(messages, start_date, end_date):
         elif "Distribucio pegats seguretat anual" in message.Subject:
             date_str = message.Body.split("Data i hora fi:")[-1].split(" ")[1].split(".")[0]
  
-
         try:
             date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
         except ValueError:
@@ -161,7 +167,11 @@ def extract_emails(messages, start_date, end_date):
 
 
 
+
+# FUNCTIONS TO CLASSIFY THE MESSAGES BY TECHNOLOGY
 def classify_message_and_inter_into_dataframe(messages, df):
+    #################
+    # INFORMES #
     rows = []
     for message in messages:
         tecnologia = "NO DEFINIT"
@@ -178,7 +188,6 @@ def classify_message_and_inter_into_dataframe(messages, df):
         else:
             resultat = "OK"
             
-      
         tecnologia = next((key for key in categories if any(word in subject for word in categories[key])), "NO DEFINIDO")
 
         if "Petició desplegament Genèric SIA a PRO" in subject:
@@ -225,11 +234,61 @@ def classify_message_and_inter_into_dataframe(messages, df):
                 subject = message.body.split("Petició:")[-1].split("\r")[0].strip(" ")
 
 
-
         rows.append([ENTORNO, subject, tecnologia, resultat, urgent, check,incidencia, observacions, ""])
     
+        
+        #################
+        # DESPLEGAMENTS #
+        # Crear un diccionario con las categorías y sus valores por defecto
+        categorias_valores = {
+            "Desplegament amb reinici de servidors": "NO",
+            "Subscripció d'API": "NO",
+            "API": "NO",
+            "GetAccess": "NO",
+            "API + VERSIÓN": "NO"
+        }
+        
+       
+        categories_list = categories_list.split(";")
+
+        #eliminar los espacios en blanco de la lista
+        categories_list = [x.strip(' ') for x in categories_list]
+
+        for categoria in categories_list:
+            if categoria in categorias_valores:
+                categorias_valores[categoria] = "SI"
+                #eliminar la categoria de la lista
+                categories_list.remove(categoria)
+        
+        # Obtener los valores de las categorías
+        reinicio = categorias_valores["Desplegament amb reinici de servidors"]
+        subscripcio = categorias_valores["Subscripció d'API"]
+        api = categorias_valores["API"]
+        getaccess = categorias_valores["GetAccess"]
+        version = categorias_valores["API + VERSIÓN"]
+
+        if getaccess == "SI":
+            #buscamos en el cuerpo del mensaje la palabra "Acció J2EE:" y cogemos el valor que hay despues
+            accio = message.Body.split("Acció J2EE:")[-1].split("\r")[0].strip(" ")
+            getaccess = "SI - " + accio
+
+
+        if "KO" in categories_list:
+            categories_list.remove("KO")
+
+        responsable = categories_list
+
+        responsable = str(responsable).strip('[]')
+        # Eliminar comillas simples y dobles de la cadena
+        responsable = responsable.replace("'", "").replace('"', '')
+        
+        # Agregar los valores al DataFrame
+        df_despliegues.loc[len(df_despliegues)] = [responsable,subject,tecnologia , reinicio, api, subscripcio, getaccess, version]
+
+        #################
+    
     new_df = pd.DataFrame(rows, columns=df.columns)
-    return new_df
+    return new_df , df_despliegues
 
 
 
@@ -341,10 +400,10 @@ def pass_df_to_excel(df, from_date, to_date):
         "Documentum": 9,
         "Cognos": 10,
         "Porlet": 11,
-        "Pegats": 12
+        "Pegats": 12,
+        "Otros": 13
     }
 
-    
     # crear un nuevo dataset con [Tecnologia,Producció OK,Producció KO,Urgent,Total Producció]
     dataResum = []
     for tecnologia, fila in tecnologias.items():
@@ -373,8 +432,6 @@ def pass_df_to_excel(df, from_date, to_date):
     for r in dataframe_to_rows(dfResum, index=False, header=False):
         ws2.append(r)
         
-
-
     # Aplicar estilo a la tabla
     for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=ws2.max_column):
         if row[0].row % 2 == 0:
@@ -412,6 +469,72 @@ def pass_df_to_excel(df, from_date, to_date):
     
 
 
+def pass_df_despliegues_to_excel(df_despliegues, from_date, to_date):
+    wb = Workbook()
+    ws3 = wb.active
+    ws3.title = f"Informes_desplegaments"
+
+    # Define the font and alignment for the header
+    font = Font(name='Arial', size=12, bold=True, italic=False, vertAlign=None, underline='none', strike=False, color='ffffff')
+    alignment = Alignment(horizontal='center', vertical='center', text_rotation=0, wrap_text=False, shrink_to_fit=False, indent=0)
+    fill_2 = PatternFill(start_color='fae4b9', end_color='FFC000', fill_type='solid')
+
+    # Apply the style to odd rows
+    for row in ws3.iter_rows(min_row=2, max_row=ws3.max_row, min_col=1, max_col=ws3.max_column):
+        if row[0].row % 2 == 0:
+            for cell in row:
+                cell.fill = fill_2
+
+    # crear carpeta si no existe
+    if not os.path.exists("Informes_Generats"):
+        os.makedirs("Informes_Generats")
+
+    # Definir la cabecera de la hoja
+    ws3['A1'] = "Responsable"
+    ws3['B1'] = "Petició"
+    ws3['C1'] = "Tenologia"
+    ws3['D1'] = "Reinici de servidor"
+    ws3['E1'] = "Publicació d'API"
+    ws3['F1'] = "Subscripció d'API"
+    ws3['G1'] = "GetAccess"
+    ws3['H1'] = "API + Versió"
+
+    # Aplicar estilo a la cabecera
+    for cell in ws3['1:1']:
+        cell.font = font
+        cell.alignment = alignment
+        cell.fill = PatternFill(start_color='ffb521', end_color='0000ff', fill_type='solid')
+
+    # Ajustar el ancho de las columnas
+    ws3.column_dimensions['A'].width = 20
+    ws3.column_dimensions['B'].width = 100
+    ws3.column_dimensions['C'].width = 20
+    ws3.column_dimensions['D'].width = 20
+    ws3.column_dimensions['E'].width = 20
+    ws3.column_dimensions['F'].width = 20
+    ws3.column_dimensions['G'].width = 20
+    ws3.column_dimensions['H'].width = 20
+
+    # Agregar los datos al excel
+    for index, row in df_despliegues.iterrows():
+        ws3.append([
+            row["Responsable"],
+            row["Petició"],
+            row["Tecnologia"],
+            row["Reinici de servidor"],
+            row["Publicació d'API"],
+            row["Subscripció d'API"],
+            row["GetAccess"],
+            row["API + Versio"]
+        ])
+
+    # Aplicar estilo a la tabla
+    for row in ws3.iter_rows(min_row=2, max_row=ws3.max_row, min_col=1, max_col=ws3.max_column):
+        if row[0].row % 2 == 0:
+            for cell in row:
+                cell.fill = fill_2
+                
+    wb.save(f"Informes_Generats/Informes_desplegaments_PRO_{from_date}_{to_date}.xlsx")
 
 
 def get_date_range(start_date=None, end_date=None):
@@ -527,8 +650,10 @@ def get_date(val):
         raise ValueError("No s'ha seleccionat cap data")
     return selected_date
 
+
 def main():
     global df
+    global generar_desplegaments_PRO
     print("###############################################")
     print("##                                           ##")
     print("##  Programa de generació d'informes de      ##")
@@ -550,8 +675,9 @@ def main():
 
     print("Opcions:")
     print("1. Revisar les dates")
-    print("2. Continuar")
-    print("3. Sortir")
+    print("2. Generar informe setmanal")
+    print("3. Generar informe de desplegaments de PRO")
+    print("4. Sortir")
     print()
 
     # creamos un bucle para que el usuario pueda elegir una opcion hasta que la opcion sea correcta
@@ -571,6 +697,9 @@ def main():
             elif opcion == 2:
                 break
             elif opcion == 3:
+                generar_desplegaments_PRO = True
+                break
+            elif opcion == 4:
                 exit()
             else:
                 print("Opció incorrecta")
@@ -599,8 +728,9 @@ def main():
     print(f"Realitzar l'extracció dels mails de {selected_date.strftime('%d/%m/%Y')} fins {to_date.strftime('%d/%m/%Y')}")
     emails, datas = extract_emails(messages, selected_date, to_date)
 
-    df = classify_message_and_inter_into_dataframe(emails, df)
+    df,df_despliegues = classify_message_and_inter_into_dataframe(emails, df)
 
+   
     print("Extracció realitzada correctament, se ha creat al dataset !!")
 
     #Si el dataframe esta vacio, mostrar un mensaje de error y salir del programa
@@ -612,7 +742,10 @@ def main():
     df.loc[df['Data'] == '', 'Data'] = datas
     
     # Pasar el dataframe a un archivo de Excel y guardar en disco
-    pass_df_to_excel(df, selected_date, to_date)
+    if generar_desplegaments_PRO:
+        pass_df_despliegues_to_excel(df_despliegues, selected_date, to_date)
+    else:
+        pass_df_to_excel(df, selected_date, to_date)
 
     print("Fitxer Excel generat correctament !!")
     print()
