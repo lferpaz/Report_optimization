@@ -422,7 +422,8 @@ def pass_df_to_excel(df, from_date, to_date):
     Agregar datos a el documento Plantilla de Excel
     '''
     # Fecha actual
-    fechaActual = datetime.datetime.now().strftime("%d/%m/%Y")
+    fechaActual = to_date.strftime("%d/%m/%Y")
+
 
     # Cargar el archivo Excel existente
     archivo_excel = "Informes_Generats\Plantilla.xlsx"
@@ -462,8 +463,55 @@ def pass_df_to_excel(df, from_date, to_date):
     # Guardar el archivo Excel
     wb2.save(archivo_excel)
 
-    ''' '''
 
+    #hacemos lo mismo para el excel en la hoja Master
+    wb3 = load_workbook(archivo_excel)
+    ws4 = wb3['Master']
+
+    # Borrar todas las filas con la fecha actual
+    rows_to_delete = []
+    for row in ws4.iter_rows(min_row=2, max_row=ws4.max_row, min_col=1, max_col=1):
+        if row[0].value == fechaActual:
+            rows_to_delete.append(row[0].row)
+
+    # Eliminar las filas en orden inverso para evitar problemas de índices cambiantes
+    for row_idx in reversed(rows_to_delete):
+        ws4.delete_rows(row_idx)
+
+    # Obtener la próxima fila vacía después de borrar las filas
+    next_row = ws4.max_row + 1
+
+    # Agregar los nuevos datos al Excel
+    for _, row_data in dfResum.iterrows():
+        ws4.append([
+            fechaActual,
+            row_data["Tecnologia"],
+            row_data["Producció OK"],
+            row_data["Producció KO"],
+            row_data["Total Producció"],
+            row_data["Urgent"]
+        ])
+
+    # Aplicar estilo a los datos agregados
+    for row in ws4.iter_rows(min_row=next_row, max_row=ws4.max_row, min_col=1, max_col=6):
+        if row[0].row % 2 == 0:
+            for cell in row:
+                cell.fill = fill
+
+    # agregar una fila final con el total
+    ws4.append([
+        fechaActual,
+        "Total",
+        dfResum["Producció OK"].sum(),
+        dfResum["Producció KO"].sum(),
+        dfResum["Total Producció"].sum(),
+        dfResum["Urgent"].sum()
+    ])
+
+    # Guardar el archivo Excel
+    wb3.save(archivo_excel)
+
+    ''' '''
 
     # agregar una fila final con el total para cada columna
     dfResum.loc['Total'] = dfResum.sum()
