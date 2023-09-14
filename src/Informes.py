@@ -5,7 +5,7 @@ import pandas as pd
 import PySimpleGUI as sg
 from babel import numbers
 from datetime import timedelta
-from openpyxl import Workbook
+from openpyxl import Workbook,load_workbook
 from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -18,7 +18,6 @@ from tkinter import Tk, Button, messagebox, Label
 from tkcalendar import Calendar, DateEntry
 
 warnings.filterwarnings("ignore")
-
 
 # GLOBAL VARIABLES
 now = datetime.datetime.now()
@@ -49,17 +48,16 @@ categories = {
     "Paquet": ["Fi Distribució tècnica paquet"],
     "BBDD": [".BD", "Instalables+Scripts+Normal"],
     "Pegats" : ["Distribucio pegats seguretat"],
-    "Otros" : ["SILTRA"]
+    "Otros" : ["SILTRA","TREM","FICOR"]
 }
 
 
 entornos = {
     "pre": [
         "Munteu la maqueta", "Homologar", "Muntar la maqueta",
-        "Muntar maqueta", "Assignació d'Assistència","Petició desplegament genèric SIA a PRE","Detindre aplicació","RE:","Ok detenció aplicació a PRO"
+        "Muntar maqueta", "Assignació d'Assistència","Petició desplegament genèric SIA a PRE","Detindre aplicació","RE:","Ok detenció aplicació a PRO","Desinstal·lació aplicació"
     ]
 }
-
 
 df = pd.DataFrame(
     columns=[
@@ -164,8 +162,6 @@ def extract_emails(messages, start_date, end_date):
         emails_no_classified.append(message)
         
     return emails, datas
-
-
 
 
 # FUNCTIONS TO CLASSIFY THE MESSAGES BY TECHNOLOGY
@@ -421,6 +417,54 @@ def pass_df_to_excel(df, from_date, to_date):
     # Eliminar valores con total 0
     dfResum = dfResum[dfResum['Total Producció'] != 0]
 
+
+    ''' 
+    Agregar datos a el documento Plantilla de Excel
+    '''
+    # Fecha actual
+    fechaActual = datetime.datetime.now().strftime("%d/%m/%Y")
+
+    # Cargar el archivo Excel existente
+    archivo_excel = "Informes_Generats\Plantilla.xlsx"
+    wb2 = load_workbook(archivo_excel)
+    ws3 = wb2['Tecnologies']
+
+    # Borrar todas las filas con la fecha actual
+    rows_to_delete = []
+    for row in ws3.iter_rows(min_row=2, max_row=ws3.max_row, min_col=1, max_col=1):
+        if row[0].value == fechaActual:
+            rows_to_delete.append(row[0].row)
+
+    # Eliminar las filas en orden inverso para evitar problemas de índices cambiantes
+    for row_idx in reversed(rows_to_delete):
+        ws3.delete_rows(row_idx)
+
+    # Obtener la próxima fila vacía después de borrar las filas
+    next_row = ws3.max_row + 1
+
+    # Agregar los nuevos datos al Excel
+    for _, row_data in dfResum.iterrows():
+        ws3.append([
+            fechaActual,
+            row_data["Tecnologia"],
+            row_data["Producció OK"],
+            row_data["Producció KO"],
+            row_data["Total Producció"],
+            row_data["Urgent"]
+        ])
+
+    # Aplicar estilo a los datos agregados
+    for row in ws3.iter_rows(min_row=next_row, max_row=ws3.max_row, min_col=1, max_col=6):
+        if row[0].row % 2 == 0:
+            for cell in row:
+                cell.fill = fill
+
+    # Guardar el archivo Excel
+    wb2.save(archivo_excel)
+
+    ''' '''
+
+
     # agregar una fila final con el total para cada columna
     dfResum.loc['Total'] = dfResum.sum()
 
@@ -540,7 +584,7 @@ def pass_df_despliegues_to_excel(df_despliegues, from_date, to_date):
 def get_date_range(start_date=None, end_date=None):
     """Muestra un widget de rango de fechas para que el usuario seleccione un rango."""
     root = Tk()
-    root.geometry("350x300")
+    root.geometry("500x500")
     root.title("Gestió de desplegaments")
 
     def get_selected_dates():
@@ -611,12 +655,13 @@ def exit_program(root):
 def get_date(val):
     """Muestra un calendario para que el usuario seleccione una fecha."""
     root = Tk()
-    root.geometry("300x300")
+    root.geometry("300x350")
     if val == 0:
         root.title("Seleccionar data d'inici")
     else:
         root.title("Seleccionar data final")
 
+    
     def get_selected_date():
         """Obtiene la fecha seleccionada por el usuario y cierra la ventana."""
         nonlocal selected_date
@@ -630,11 +675,20 @@ def get_date(val):
         root.destroy()
         exit()
 
+     #Poner un titulo en la ventana
+    if val == 0:
+        title_label = Label(root, text="Seleccionar data d'inici", font=("Helvetica", 16), fg="black", bg="white")
+        title_label.pack(pady=10)
+    else:
+        title_label = Label(root, text="Seleccionar data final", font=("Helvetica", 16), fg="black", bg="white")
+        title_label.pack(pady=10)
+
     selected_date = None
     
 
     cal = Calendar(root, selectmode="day", year=now.year , month=now.month, day=now.day,maxdate=now)
     cal.pack(pady=20)
+
 
     btn_ok = Button(root, text="OK", command=get_selected_date)
     btn_ok.pack(side="left", pady=10, padx=10)
