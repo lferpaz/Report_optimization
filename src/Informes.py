@@ -16,6 +16,8 @@ import win32com.client
 import win32timezone
 from tkinter import Tk, Button, messagebox, Label
 from tkcalendar import Calendar, DateEntry
+from dateutil import parser
+
 
 warnings.filterwarnings("ignore")
 
@@ -400,7 +402,7 @@ def pass_df_to_excel(df, from_date, to_date):
         "Otros": 13
     }
 
-    # crear un nuevo dataset con [Tecnologia,Producció OK,Producció KO,Urgent,Total Producció]
+    # crear un nuevo dataset con [Tecnologia,Producció OK,Producció KO,Total Producció,Urgents] 
     dataResum = []
     for tecnologia, fila in tecnologias.items():
         tecnologia_ok = df.loc[(df['Tecnologia'] == tecnologia) & (df['Resultat'] == "OK")].count()[0]
@@ -413,7 +415,6 @@ def pass_df_to_excel(df, from_date, to_date):
     # Ordenar el dataset por Total Producció
     dfResum = dfResum.sort_values(by=['Total Producció'], ascending=False)
 
-    
     # Eliminar valores con total 0
     dfResum = dfResum[dfResum['Total Producció'] != 0]
 
@@ -421,97 +422,103 @@ def pass_df_to_excel(df, from_date, to_date):
     ''' 
     Agregar datos a el documento Plantilla de Excel
     '''
-    # Fecha actual
-    fechaActual = to_date.strftime("%d/%m/%Y")
-
 
     # Cargar el archivo Excel existente
     archivo_excel = "Informes_Generats\Plantilla.xlsx"
     wb2 = load_workbook(archivo_excel)
     ws3 = wb2['Tecnologies']
 
-    # Borrar todas las filas con la fecha actual
-    rows_to_delete = []
+    existe_registro = False
+
+
+    to_date_ = to_date.strftime("%Y-%m-%d")
+    from_date_ = from_date.strftime("%Y-%m-%d")
+
     for row in ws3.iter_rows(min_row=2, max_row=ws3.max_row, min_col=1, max_col=1):
-        if row[0].value == fechaActual:
-            rows_to_delete.append(row[0].row)
+        # convertimos string a objeto datetime
+        valor_fecha = str(row[0].value)
+        try:
+            r_data = datetime.datetime.strptime(valor_fecha, '%Y-%m-%d %H:%M:%S').date()
+            # Poner en formato dd/mm/yyyy
+            r_data = r_data.strftime("%Y-%m-%d")
+        except:
+            r_data = datetime.datetime.strptime(valor_fecha, '%d/%m/%Y').date()
+            # Poner en formato dd/mm/yyyy
+            r_data = r_data.strftime("%Y-%m-%d")
 
-    # Eliminar las filas en orden inverso para evitar problemas de índices cambiantes
-    for row_idx in reversed(rows_to_delete):
-        ws3.delete_rows(row_idx)
+        if r_data >= to_date_ or r_data >= from_date_:
+            # Mostrar mensaje de error
+            popup_result = sg.PopupOKCancel(
+            "ATENCIÓ: Ja existeix un informe amb les dates seleccionades "+str(r_data)+".Es generarà un nou informe, però les dades a la plantilla d'Excel no s'actualitzaran !!. Les dates a introduir a la plantilla d'Excel només poden ser posteriors a la data de l'últim informe generat.",
+            title="Advertència"
+            )
+            if popup_result == "OK":
+                existe_registro = True
+                break
+            else:
+                sys.exit()
+        
+    if not existe_registro:
+        fechaActual = to_date.strftime("%d/%m/%Y")
+        # Obtener la próxima fila vacía después de borrar las filas
+        next_row = ws3.max_row + 1
+        # Agregar los nuevos datos al Excel
+        for _, row_data in dfResum.iterrows():
+            ws3.append([
+                fechaActual,
+                row_data["Tecnologia"],
+                row_data["Producció OK"],
+                row_data["Producció KO"],
+                row_data["Total Producció"],
+                row_data["Urgent"]
+            ])
+        # Aplicar estilo a los datos agregados
+        for row in ws3.iter_rows(min_row=next_row, max_row=ws3.max_row, min_col=1, max_col=6):
+            if row[0].row % 2 == 0:
+                for cell in row:
+                    cell.fill = fill
+        # Guardar el archivo Excel
+        wb2.save(archivo_excel)
+    
 
-    # Obtener la próxima fila vacía después de borrar las filas
-    next_row = ws3.max_row + 1
+        #hacemos lo mismo para el excel en la hoja Master
+        wb3 = load_workbook(archivo_excel)
+        ws4 = wb3['Master']
 
-    # Agregar los nuevos datos al Excel
-    for _, row_data in dfResum.iterrows():
-        ws3.append([
-            fechaActual,
-            row_data["Tecnologia"],
-            row_data["Producció OK"],
-            row_data["Producció KO"],
-            row_data["Total Producció"],
-            row_data["Urgent"]
-        ])
+        # Obtener la próxima fila vacía después de borrar las filas
+        next_row = ws4.max_row + 1
 
-    # Aplicar estilo a los datos agregados
-    for row in ws3.iter_rows(min_row=next_row, max_row=ws3.max_row, min_col=1, max_col=6):
-        if row[0].row % 2 == 0:
-            for cell in row:
-                cell.fill = fill
+        # Agregar los nuevos datos al Excel
+        for _, row_data in dfResum.iterrows():
+            ws4.append([
+                fechaActual,
+                row_data["Tecnologia"],
+                row_data["Producció OK"],
+                row_data["Producció KO"],
+                row_data["Total Producció"],
+                row_data["Urgent"]
+            ])
 
-    # Guardar el archivo Excel
-    wb2.save(archivo_excel)
+        # Aplicar estilo a los datos agregados
+        for row in ws4.iter_rows(min_row=next_row, max_row=ws4.max_row, min_col=1, max_col=6):
+            if row[0].row % 2 == 0:
+                for cell in row:
+                    cell.fill = fill
 
-
-    #hacemos lo mismo para el excel en la hoja Master
-    wb3 = load_workbook(archivo_excel)
-    ws4 = wb3['Master']
-
-    # Borrar todas las filas con la fecha actual
-    rows_to_delete = []
-    for row in ws4.iter_rows(min_row=2, max_row=ws4.max_row, min_col=1, max_col=1):
-        if row[0].value == fechaActual:
-            rows_to_delete.append(row[0].row)
-
-    # Eliminar las filas en orden inverso para evitar problemas de índices cambiantes
-    for row_idx in reversed(rows_to_delete):
-        ws4.delete_rows(row_idx)
-
-    # Obtener la próxima fila vacía después de borrar las filas
-    next_row = ws4.max_row + 1
-
-    # Agregar los nuevos datos al Excel
-    for _, row_data in dfResum.iterrows():
+        # agregar una fila final con el total
         ws4.append([
             fechaActual,
-            row_data["Tecnologia"],
-            row_data["Producció OK"],
-            row_data["Producció KO"],
-            row_data["Total Producció"],
-            row_data["Urgent"]
+            "Total",
+            dfResum["Producció OK"].sum(),
+            dfResum["Producció KO"].sum(),
+            dfResum["Total Producció"].sum(),
+            dfResum["Urgent"].sum()
         ])
 
-    # Aplicar estilo a los datos agregados
-    for row in ws4.iter_rows(min_row=next_row, max_row=ws4.max_row, min_col=1, max_col=6):
-        if row[0].row % 2 == 0:
-            for cell in row:
-                cell.fill = fill
+        # Guardar el archivo Excel
+        wb3.save(archivo_excel)
 
-    # agregar una fila final con el total
-    ws4.append([
-        fechaActual,
-        "Total",
-        dfResum["Producció OK"].sum(),
-        dfResum["Producció KO"].sum(),
-        dfResum["Total Producció"].sum(),
-        dfResum["Urgent"].sum()
-    ])
-
-    # Guardar el archivo Excel
-    wb3.save(archivo_excel)
-
-    ''' '''
+        
 
     # agregar una fila final con el total para cada columna
     dfResum.loc['Total'] = dfResum.sum()
@@ -842,7 +849,8 @@ def main():
     
     # Agregar la columna 'datas' en el orden de la lista, pero solo a aquellas filas del dataframe que no tengan fecha
     df.loc[df['Data'] == '', 'Data'] = datas
-    
+
+   
     # Pasar el dataframe a un archivo de Excel y guardar en disco
     if generar_desplegaments_PRO:
         pass_df_despliegues_to_excel(df_despliegues, selected_date, to_date)
@@ -861,6 +869,7 @@ if __name__ == "__main__":
         main()
         input("Premeu una tecla per a continuar...")
     except Exception as e:
+        #mostrar la linea de error
         messagebox.showerror("Error", f"Ha ocurrido un error: {e}")
         sys.exit()
    
