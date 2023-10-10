@@ -210,22 +210,22 @@ def classify_message_and_inter_into_dataframe(messages, df):
         if "[Scripts+Normal]" in subject: 
             tecnologia = "BBDD"
 
-        if tecnologia == "Devops":
+        
             
-            if "Aquesta petició resol una incidència?" in message.Body:
+        if "Aquesta petició resol una incidència?" in message.Body:
+            
+            check = message.Body.split("Aquesta petició resol una incidència?")[-1].split("\r")[0].strip(" ")
+            if check == "Sí":
+                incidencia = message.Body.split("Indiqueu el codi de la incidència:")[-1].split("\r")[0]
                 
-                check = message.Body.split("Aquesta petició resol una incidència?")[-1].split("\r")[0].strip(" ")
-                if check == "Sí":
-                    incidencia = message.Body.split("Indiqueu el codi de la incidència:")[-1].split("\r")[0]
-                    
-                    if not incidencia:
-                        incidencia = "No hi ha incidència associada"
-                        check = "No"
-                    elif not any(char.isdigit() for char in incidencia) or len(incidencia) < 2:
-                        incidencia = "No hi ha incidència associada"
-                        check = "No"
-                else:
+                if not incidencia:
                     incidencia = "No hi ha incidència associada"
+                    check = "No"
+                elif not any(char.isdigit() for char in incidencia) or len(incidencia) < 2:
+                    incidencia = "No hi ha incidència associada"
+                    check = "No"
+            else:
+                incidencia = "No hi ha incidència associada"
 
         if tecnologia == "Paquet":
             if "Petició:" in message.body:
@@ -424,11 +424,18 @@ def pass_df_to_excel(df, from_date, to_date):
     '''
 
     # Cargar el archivo Excel existente
-    archivo_excel = "Informes_Generats\Plantilla.xlsx"
-    wb2 = load_workbook(archivo_excel)
-    ws3 = wb2['Tecnologies']
+    archivo_excel = "Plantilla.xlsx"
+    try:
+        wb2 = load_workbook(archivo_excel)
+        ws3 = wb2['Tecnologies']
+        existe_registro = False
 
-    existe_registro = False
+    except:
+        sg.PopupOKCancel(
+            "No existeix el fitxer Plantilla.xlsx a la carpeta Informes_Generats, si us plau, creeu-lo a partir de la plantilla que trobareu a la carpeta Plantilla.",
+            title="Error"
+        )
+        sys.exit()
 
 
     to_date_ = to_date.strftime("%Y-%m-%d")
@@ -462,9 +469,43 @@ def pass_df_to_excel(df, from_date, to_date):
         fechaActual = to_date.strftime("%d/%m/%Y")
         # Obtener la próxima fila vacía después de borrar las filas
         next_row = ws3.max_row + 1
+
+        #Borrar los registros del mes del ano anterior, es decir si estamos en enero 2021, borrar los registros de enero 2020
+        # Obtener la fecha actual
+        today = datetime.date.today()
+        mes_actual = today.month
+        ano_actual = today.year
+
+        filas_a_eliminar = []
+
+        for row in ws3.iter_rows(min_row=2, max_row=ws3.max_row, min_col=1, max_col=1):
+            valor_fecha = row[0].value
+
+            if valor_fecha is not None:
+                if isinstance(valor_fecha, datetime.datetime):
+                    fecha = valor_fecha.date()
+                elif isinstance(valor_fecha, str):
+                    try:
+                        fecha = datetime.datetime.strptime(valor_fecha, '%Y-%m-%d').date()
+                    except ValueError:
+                        fecha = datetime.datetime.strptime(valor_fecha, '%d/%m/%Y').date()
+                else:
+                    continue  # Salta las filas con valores de fecha no válidos
+                
+                if fecha.month == mes_actual and fecha.year == (ano_actual - 1):
+                    # Agrega el índice de la fila a la lista de filas a eliminar
+                    filas_a_eliminar.append(row[0].row)
+
+        # Elimina las filas en orden inverso para evitar problemas de índices cambiantes
+        filas_a_eliminar.reverse()
+        for idx in filas_a_eliminar:
+            ws3.delete_rows(idx)
+
+                
         # Agregar los nuevos datos al Excel
         for _, row_data in dfResum.iterrows():
             ws3.append([
+                #cambiar formato de to?date de yyyy-mm-dd a dd/mm/yyyy pero manteniendo el tipo datetime 
                 fechaActual,
                 row_data["Tecnologia"],
                 row_data["Producció OK"],
@@ -472,6 +513,7 @@ def pass_df_to_excel(df, from_date, to_date):
                 row_data["Total Producció"],
                 row_data["Urgent"]
             ])
+
         # Aplicar estilo a los datos agregados
         for row in ws3.iter_rows(min_row=next_row, max_row=ws3.max_row, min_col=1, max_col=6):
             if row[0].row % 2 == 0:
@@ -873,12 +915,6 @@ if __name__ == "__main__":
         messagebox.showerror("Error", f"Ha ocurrido un error: {e}")
         sys.exit()
    
-
- 
-
-
-
-
 
     
  
