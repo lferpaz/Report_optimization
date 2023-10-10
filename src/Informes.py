@@ -604,7 +604,13 @@ def pass_df_to_excel(df, from_date, to_date):
     ws2['A15'] = f"Desplegaments del {from_date2} al {to_date2}"
 
     # concatenar la siguiente cadena De n desplegaments, n han sigut urgents, d’aquests, n tenien incidència associada
-    ws2['A17'] = f"De {total_desplegaments} desplegaments, {total_urgents} han sigut urgents, d’aquests, {total_incidencies} tenien incidència associada."
+    if total_incidencies == 1:
+        ws2['A17'] = f"De {total_desplegaments} desplegaments, {total_urgents} han sigut urgents, d’aquests, {total_incidencies} tenia incidència associada"
+    elif total_incidencies > 1:
+        ws2['A17'] = f"De {total_desplegaments} desplegaments, {total_urgents} han sigut urgents, d’aquests, {total_incidencies} tenien incidència associada"
+    else:
+        ws2['A17'] = f"De {total_desplegaments} desplegaments, {total_urgents} han sigut urgents, d’aquests, cap tenia incidència associada"
+
 
     wb.save(f"Informes_Generats/Informes_Gestió_Desplegament_{from_date}_{to_date}.xlsx")
     
